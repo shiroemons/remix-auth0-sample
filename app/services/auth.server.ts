@@ -47,11 +47,7 @@ export async function setUserSession(request: Request, userId: string, userData:
 }
 
 // 認証インスタンスの作成
-// @ts-ignore - Authenticatorの型定義の問題を回避
-export const authenticator = new Authenticator<User>(sessionStorage, {
-  sessionKey: "userData", // セッションのキー
-  sessionErrorKey: "authError", // エラー情報のキー
-});
+export const authenticator = new Authenticator<User>();
 
 // セッションからユーザー情報を取得する関数
 export async function isAuthenticated(request: Request) {
