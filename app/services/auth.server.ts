@@ -83,43 +83,31 @@ const auth0Strategy = new Auth0Strategy<User>(
     scopes: ["openid", "email", "profile", "offline_access"],
   },
   // @ts-ignore - VerifyOptions型の問題を回避
-  async ({ tokens, profile }) => {
-    // 受け取ったデータの詳細をログ出力
-    debug.log("Auth0アクセストークン情報:", tokens.accessToken() ? "トークンあり" : "トークンなし");
-    debug.log("Auth0リフレッシュトークン:", tokens.hasRefreshToken() ? "リフレッシュトークンあり" : "リフレッシュトークンなし");
-    
-    // プロファイル情報の完全なダンプ
-    debug.log("Auth0プロファイル完全データ:", JSON.stringify(profile, null, 2));
-    
-    // プロファイル情報のログ出力（デバッグ用）
-    debug.log("Auth0プロファイル情報サマリー:", JSON.stringify({
-      id: profile?.id,
-      provider: profile?.provider,
-      displayName: profile?.displayName,
-      hasEmails: Array.isArray(profile?.emails) && profile.emails.length > 0,
-      hasDisplayName: !!profile?.displayName,
-      hasPhotos: Array.isArray(profile?.photos) && profile.photos.length > 0,
-    }));
+  async ({ tokens }) => {
+    const userResponse = await fetch(
+      `https://${process.env.AUTH0_DOMAIN}/userinfo`,
+      {
+        headers: {
+          Authorization: `Bearer ${tokens.accessToken()}`,
+        },
+      },
+    );
 
-    // デフォルト値を使用してユーザー情報を安全に構築
-    const user = {
-      id: profile?.id || `auth0-user-${Date.now()}`,
-      email: profile?.emails?.[0]?.value || "",
-      name: profile?.displayName || "名前なし",
-      picture: profile?.photos?.[0]?.value || "",
+    if (!userResponse.ok) {
+      throw new Error("Failed to fetch user data");
+    }
+
+    const userData = await userResponse.json();
+    debug.log(userData);
+    
+    return {
+      id: userData.sub,
+      email: userData.email,
+      name: userData.name,
+      picture: userData.picture,
       accessToken: tokens.accessToken(),
-      refreshToken: tokens.hasRefreshToken() ? tokens.refreshToken() : null,
+      refreshToken: tokens.refreshToken(),
     };
-    
-    // ユーザー情報が構築されたことをログ出力
-    debug.log("Auth0ユーザー構築完了:", {
-      id: user.id,
-      hasEmail: !!user.email,
-      hasName: !!user.name,
-      hasToken: !!user.accessToken,
-    });
-    
-    return user;
   }
 );
 
