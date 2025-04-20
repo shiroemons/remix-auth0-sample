@@ -82,17 +82,11 @@ const auth0Strategy = new Auth0Strategy<User>(
     redirectURI: process.env.AUTH0_CALLBACK_URL || "http://localhost:3000/auth/auth0/callback",
     scopes: ["openid", "email", "profile", "offline_access"],
   },
-  // @ts-ignore - コールバック関数の型の問題を回避
-  async (
-    accessToken: string,
-    refreshToken: string | null,
-    extraParams: any,
-    profile: any
-  ) => {
+  // @ts-ignore - VerifyOptions型の問題を回避
+  async ({ tokens, profile }) => {
     // 受け取ったデータの詳細をログ出力
-    debug.log("Auth0アクセストークン情報:", accessToken ? "トークンあり" : "トークンなし");
-    debug.log("Auth0リフレッシュトークン:", refreshToken ? "リフレッシュトークンあり" : "リフレッシュトークンなし");
-    debug.log("Auth0追加パラメータ:", extraParams ? JSON.stringify(Object.keys(extraParams)) : "追加パラメータなし");
+    debug.log("Auth0アクセストークン情報:", tokens.accessToken() ? "トークンあり" : "トークンなし");
+    debug.log("Auth0リフレッシュトークン:", tokens.hasRefreshToken() ? "リフレッシュトークンあり" : "リフレッシュトークンなし");
     
     // プロファイル情報の完全なダンプ
     debug.log("Auth0プロファイル完全データ:", JSON.stringify(profile, null, 2));
@@ -113,8 +107,8 @@ const auth0Strategy = new Auth0Strategy<User>(
       email: profile?.emails?.[0]?.value || "",
       name: profile?.displayName || "名前なし",
       picture: profile?.photos?.[0]?.value || "",
-      accessToken,
-      refreshToken,
+      accessToken: tokens.accessToken(),
+      refreshToken: tokens.hasRefreshToken() ? tokens.refreshToken() : null,
     };
     
     // ユーザー情報が構築されたことをログ出力
