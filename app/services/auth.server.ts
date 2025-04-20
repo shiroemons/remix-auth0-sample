@@ -1,6 +1,7 @@
 import { Authenticator } from "remix-auth";
 import { Auth0Strategy } from "remix-auth-auth0";
 import { createCookieSessionStorage } from "react-router";
+import { debug } from "~/utils/debug.server";
 
 // ユーザータイプの定義
 export type User = {
@@ -25,9 +26,51 @@ export const sessionStorage = createCookieSessionStorage({
   },
 });
 
+// ユーザーセッションのヘルパー関数
+export async function getUserSession(request: Request) {
+  return sessionStorage.getSession(request.headers.get("cookie"));
+}
+
+// セッションへのユーザー情報保存
+export async function setUserSession(request: Request, userId: string, userData: any) {
+  const session = await getUserSession(request);
+  session.set("userId", userId);
+  session.set("userData", userData);
+  
+  // セッションが正しく設定されたかログ出力
+  debug.log("セッション設定:", {
+    hasUserId: !!session.get("userId"),
+    hasUserData: !!session.get("userData"),
+  });
+  
+  return session;
+}
+
 // 認証インスタンスの作成
 // @ts-ignore - Authenticatorの型定義の問題を回避
-export const authenticator = new Authenticator<User>(sessionStorage);
+export const authenticator = new Authenticator<User>(sessionStorage, {
+  sessionKey: "userData", // セッションのキー
+  sessionErrorKey: "authError", // エラー情報のキー
+});
+
+// セッションからユーザー情報を取得する関数
+export async function isAuthenticated(request: Request) {
+  const session = await getUserSession(request);
+  const userId = session.get("userId");
+  const userData = session.get("userData");
+  
+  if (!userId || !userData) {
+    debug.log("認証チェック: セッションにユーザー情報がありません");
+    return null;
+  }
+  
+  debug.log("認証チェック: ユーザー情報あり", {
+    id: userData.id || "ID未設定",
+    hasEmail: !!userData.email,
+  });
+  
+  return userData as User;
+}
 
 // Auth0ストラテジーの設定
 // @ts-ignore - Auth0Strategyのタイプ定義に問題がある場合の一時的な対処
@@ -43,17 +86,46 @@ const auth0Strategy = new Auth0Strategy<User>(
   async (
     accessToken: string,
     refreshToken: string | null,
+    extraParams: any,
     profile: any
   ) => {
-    // Auth0から返されたトークンとプロファイル情報からユーザーオブジェクトを作成
-    return {
-      id: profile.id,
-      email: profile.emails?.[0]?.value || "",
-      name: profile.displayName || "",
-      picture: profile.photos?.[0]?.value || "",
+    // 受け取ったデータの詳細をログ出力
+    debug.log("Auth0アクセストークン情報:", accessToken ? "トークンあり" : "トークンなし");
+    debug.log("Auth0リフレッシュトークン:", refreshToken ? "リフレッシュトークンあり" : "リフレッシュトークンなし");
+    debug.log("Auth0追加パラメータ:", extraParams ? JSON.stringify(Object.keys(extraParams)) : "追加パラメータなし");
+    
+    // プロファイル情報の完全なダンプ
+    debug.log("Auth0プロファイル完全データ:", JSON.stringify(profile, null, 2));
+    
+    // プロファイル情報のログ出力（デバッグ用）
+    debug.log("Auth0プロファイル情報サマリー:", JSON.stringify({
+      id: profile?.id,
+      provider: profile?.provider,
+      displayName: profile?.displayName,
+      hasEmails: Array.isArray(profile?.emails) && profile.emails.length > 0,
+      hasDisplayName: !!profile?.displayName,
+      hasPhotos: Array.isArray(profile?.photos) && profile.photos.length > 0,
+    }));
+
+    // デフォルト値を使用してユーザー情報を安全に構築
+    const user = {
+      id: profile?.id || `auth0-user-${Date.now()}`,
+      email: profile?.emails?.[0]?.value || "",
+      name: profile?.displayName || "名前なし",
+      picture: profile?.photos?.[0]?.value || "",
       accessToken,
       refreshToken,
     };
+    
+    // ユーザー情報が構築されたことをログ出力
+    debug.log("Auth0ユーザー構築完了:", {
+      id: user.id,
+      hasEmail: !!user.email,
+      hasName: !!user.name,
+      hasToken: !!user.accessToken,
+    });
+    
+    return user;
   }
 );
 
@@ -64,9 +136,37 @@ authenticator.use(auth0Strategy);
 // ユーザー認証ヘルパー関数
 export async function requireUser(request: Request, redirectTo: string = "/login") {
   try {
+    // まずセッションから認証済みユーザーを確認
+    const sessionUser = await isAuthenticated(request);
+    if (sessionUser) {
+      debug.log("requireUser: セッションから認証済みユーザーを取得");
+      return sessionUser;
+    }
+    
+    // セッションにユーザーがなければAuth0で認証
+    debug.log("requireUser: Auth0で認証を試行");
+    
     // @ts-ignore - authenticate関数の型の問題を回避
-    return await authenticator.authenticate("auth0", request);
+    const user = await authenticator.authenticate("auth0", request);
+    
+    if (user) {
+      // 認証成功したらセッションを更新
+      debug.log("requireUser: 認証成功、セッションを更新");
+      const session = await setUserSession(request, user.id, user);
+      throw new Response(null, {
+        status: 302,
+        headers: {
+          Location: request.url,
+          "Set-Cookie": await sessionStorage.commitSession(session),
+        },
+      });
+    }
+    
+    return user;
   } catch (error) {
+    // エラーをログに出力
+    debug.error("認証エラー:", error instanceof Error ? error.message : String(error));
+    
     const url = new URL(request.url);
     const searchParams = new URLSearchParams([["redirectTo", url.pathname]]);
     throw new Response(null, {

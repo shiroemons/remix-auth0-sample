@@ -9,7 +9,8 @@ import {
   useLocation,
 } from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
-import { authenticator } from "~/services/auth.server";
+import { authenticator, isAuthenticated } from "~/services/auth.server";
+import { debug } from "~/utils/debug.server";
 
 import appStyles from "~/app.css?url";
 
@@ -20,15 +21,54 @@ export const links: LinksFunction = () => [
 export async function loader({ request }: LoaderFunctionArgs) {
   // ユーザーの認証状態を確認
   try {
-    // @ts-ignore - authenticate関数の型の問題を回避
-    const user = await authenticator.authenticate("auth0", request);
-    return { user, isAuthenticated: true };
+    debug.log("ルートローダー: 認証状態を確認", request.url);
+    debug.log("ルートローダー: Cookieヘッダー", request.headers.get("cookie") || "Cookieなし");
+    
+    // まずセッションからユーザー情報を取得
+    let user = await isAuthenticated(request);
+    
+    if (user) {
+      debug.log("ルートローダー: セッションから認証済みユーザーを取得");
+      return { user, isAuthenticated: true };
+    }
+    
+    // セッションになければAuth0で認証を試行（必須ページでない限りリダイレクトしない）
+    debug.log("ルートローダー: Auth0認証を試行");
+    
+    try {
+      // @ts-ignore - authenticate関数の型の問題を回避
+      user = await authenticator.authenticate("auth0", request);
+      debug.log("ルートローダー: 認証成功", JSON.stringify({
+        id: user?.id || "ID未設定", 
+        email: user?.email || "メールなし",
+        name: user?.name || "名前なし"
+      }));
+      return { user, isAuthenticated: true };
+    } catch (authError) {
+      debug.log("ルートローダー: 認証エラーの種類", authError instanceof Error ? authError.constructor.name : typeof authError);
+      debug.log("ルートローダー: 認証エラー詳細", authError instanceof Error ? authError.message : String(authError));
+      
+      // Response型のエラーの場合、詳細情報を出力
+      if (authError instanceof Response) {
+        debug.log("ルートローダー: 認証エラーレスポンス:", {
+          status: authError.status,
+          statusText: authError.statusText,
+          headers: Object.fromEntries([...authError.headers.entries()]),
+          type: authError.type,
+          url: authError.url
+        });
+      }
+      
+      return { user: null, isAuthenticated: false };
+    }
   } catch (error) {
-    // 認証されていない場合
+    // 想定外のエラー
+    debug.error("ルートローダー: 予期しないエラー", error instanceof Error ? error.message : String(error));
     return { user: null, isAuthenticated: false };
   }
 }
 
+// クライアント側のコンポーネント
 export default function App() {
   const { isAuthenticated } = useLoaderData<typeof loader>();
   const location = useLocation();

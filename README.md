@@ -82,6 +82,39 @@ Make sure to deploy the output of `npm run build`
 
 This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
 
+## デバッグモード
+
+アプリケーションのデバッグログを表示するには、環境変数`DEBUG`を設定します。
+
+### デバッグモードの有効化
+
+開発環境でデバッグモードを有効にするには:
+
+```bash
+# macOS/Linuxの場合
+DEBUG=true npm run dev
+
+# Windowsの場合 (PowerShell)
+$env:DEBUG="true"; npm run dev
+
+# Windowsの場合 (CMD)
+set DEBUG=true && npm run dev
+```
+
+### デバッグユーティリティの使用方法
+
+アプリケーション内でデバッグログを出力するには、標準の`console.log`の代わりに`debug`ユーティリティを使用します：
+
+```typescript
+import { debug } from './utils/debug';
+
+// デバッグモードでのみログを出力
+debug.log('デバッグ情報');
+debug.info('情報');
+debug.warn('警告');
+debug.error('エラー');
+```
+
 ---
 
 Built with ❤️ using React Router.
